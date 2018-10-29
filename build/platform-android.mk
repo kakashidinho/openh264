@@ -36,27 +36,44 @@ ifndef TARGET
 $(error TARGET is not set)
 endif
 
-TOOLCHAINPREFIX = $(shell NDK_PROJECT_PATH=$(SRC_PATH)/codec/build/android/dec make --no-print-dir -f $(NDKROOT)/build/core/build-local.mk DUMP_TOOLCHAIN_PREFIX APP_ABI=$(APP_ABI))
+TOOLCHAINPREFIX = $(shell NDK_PROJECT_PATH=$(SRC_PATH)/codec/build/android/dec make --no-print-dir -f $(NDKROOT)/build/core/build-local.mk DUMP_TOOLCHAIN_PREFIX APP_ABI=$(APP_ABI) APP_STL=$(APP_STL))
 
-SYSROOT = $(NDKROOT)/platforms/android-$(NDKLEVEL)/arch-$(ARCH)
+# see https://github.com/cisco/openh264/issues/2968
+__header_triple_arm := arm-linux-androideabi
+__header_triple_arm64 := aarch64-linux-android
+__header_triple_mips := mipsel-linux-android
+__header_triple_mips64 := mips64el-linux-android
+__header_triple_x86 := i686-linux-android
+__header_triple_x86_64 := x86_64-linux-android
+SYSROOT_ARCH_INC_ARG := -isystem $(NDKROOT)/sysroot/usr/include/$(__header_triple_$(ARCH))
+
+SYSROOT = $(NDKROOT)/sysroot \
+          $(SYSROOT_ARCH_INC_ARG)
 CXX = $(TOOLCHAINPREFIX)g++
 CC = $(TOOLCHAINPREFIX)gcc
 AR = $(TOOLCHAINPREFIX)ar
-CFLAGS += -DANDROID_NDK -fpic --sysroot=$(SYSROOT) -MMD -MP
+CFLAGS += -DANDROID_NDK -fpic --sysroot=$(SYSROOT) -MMD -MP -D__ANDROID_API__=$(NDKLEVEL)
 CXXFLAGS += -fno-rtti -fno-exceptions
-LDFLAGS += --sysroot=$(SYSROOT)
+LDFLAGS += --sysroot=$(NDKROOT)/platforms/android-$(NDKLEVEL)/arch-$(ARCH)
 SHLDFLAGS = -Wl,--no-undefined -Wl,-z,relro -Wl,-z,now -Wl,-soname,lib$(PROJECT_NAME).so
 
 ifneq ($(CXX),$(wildcard $(CXX)))
 ifneq ($(CXX).exe,$(wildcard $(CXX).exe))
-$(error Compiler not found, bad NDKROOT or ARCH?)
+$(error Compiler not found CXX=$(CXX), bad NDKROOT or ARCH?)
 endif
 endif
 
+# see https://github.com/cisco/openh264/issues/2968
 STL_INCLUDES = \
-    -I$(NDKROOT)/sources/cxx-stl/stlport/stlport
-STL_LIB = \
-    $(NDKROOT)/sources/cxx-stl/stlport/libs/$(APP_ABI)/libstlport_static.a
+    -I$(NDKROOT)/sources/cxx-stl/llvm-libc++/include
+	
+ifeq ($(APP_STL), c++_static)
+	STL_LIB = \
+		$(NDKROOT)/sources/cxx-stl/llvm-libc++/libs/$(APP_ABI)/libc++_static.a
+else
+	STL_LIB = \
+		$(NDKROOT)/sources/cxx-stl/llvm-libc++/libs/$(APP_ABI)/libc++_shared.so
+endif
 
 GTEST_INCLUDES = $(STL_INCLUDES)
 CODEC_UNITTEST_INCLUDES = $(STL_INCLUDES)
@@ -68,10 +85,10 @@ ifeq (./,$(SRC_PATH))
 binaries: decdemo encdemo
 
 decdemo: libraries
-	cd ./codec/build/android/dec && $(NDKROOT)/ndk-build -B APP_ABI=$(APP_ABI) && android update project -t $(TARGET) -p . && ant debug
+	cd ./codec/build/android/dec && $(NDKROOT)/ndk-build -B APP_ABI=$(APP_ABI) APP_STL=$(APP_STL) && android update project -t $(TARGET) -p . && ant debug
 
 encdemo: libraries
-	cd ./codec/build/android/enc && $(NDKROOT)/ndk-build -B APP_ABI=$(APP_ABI) && android update project -t $(TARGET) -p . && ant debug
+	cd ./codec/build/android/enc && $(NDKROOT)/ndk-build -B APP_ABI=$(APP_ABI) APP_STL=$(APP_STL) && android update project -t $(TARGET) -p . && ant debug
 
 clean_Android: clean_Android_dec clean_Android_enc
 
